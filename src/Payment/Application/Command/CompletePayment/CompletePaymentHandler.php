@@ -6,6 +6,7 @@ namespace App\Payment\Application\Command\CompletePayment;
 
 use App\Payment\Application\Command\CommandHandler;
 use App\Payment\Application\Exception\PaymentGatewayError;
+use App\Payment\Application\Gateway\Dto\CheckoutOutcome;
 use App\Payment\Application\Gateway\Dto\CheckoutOutcomeStatus;
 use App\Payment\Application\Gateway\Dto\CompleteCheckoutInput;
 use App\Payment\Application\PaymentGatewayResolver;
@@ -51,29 +52,30 @@ final readonly class CompletePaymentHandler implements CommandHandler
         }
 
         return match ($outcome->status) {
-            CheckoutOutcomeStatus::Confirmed => $this->confirm($payment, $outcome->providerReference),
-            CheckoutOutcomeStatus::Failed => $this->fail($payment, $outcome->message),
-            CheckoutOutcomeStatus::Unconfirmed => new CompletePaymentResult(
-                $payment->status(),
-                true,
-                $outcome->message,
-            ),
+            CheckoutOutcomeStatus::Confirmed => $this->confirm($payment, $outcome),
+            CheckoutOutcomeStatus::Failed => $this->fail($payment, $outcome),
+            CheckoutOutcomeStatus::Unconfirmed => $this->unconfirmed($payment, $outcome),
         };
     }
 
-    private function confirm(Payment $payment, ?string $providerReference): CompletePaymentResult
+    private function confirm(Payment $payment, CheckoutOutcome $outcome): CompletePaymentResult
     {
-        $payment->markSucceeded($providerReference);
+        $payment->markSucceeded($outcome->providerReference);
         $this->payments->save($payment);
 
-        return new CompletePaymentResult($payment->status(), false, null);
+        return CompletePaymentResult::fromOutcome($payment->status(), $outcome);
     }
 
-    private function fail(Payment $payment, ?string $message): CompletePaymentResult
+    private function fail(Payment $payment, CheckoutOutcome $outcome): CompletePaymentResult
     {
         $payment->markFailed();
         $this->payments->save($payment);
 
-        return new CompletePaymentResult($payment->status(), false, $message);
+        return CompletePaymentResult::fromOutcome($payment->status(), $outcome);
+    }
+
+    private function unconfirmed(Payment $payment, CheckoutOutcome $outcome): CompletePaymentResult
+    {
+        return CompletePaymentResult::fromOutcome($payment->status(), $outcome);
     }
 }
