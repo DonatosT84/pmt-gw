@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<doctrine-mapping xmlns="http://doctrine-project.org/schemas/orm/doctrine-mapping"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://doctrine-project.org/schemas/orm/doctrine-mapping
+                                      https://www.doctrine-project.org/schemas/orm/doctrine-mapping.xsd">
+
+    <entity name="App\Payment\Domain\Payment" table="payments">
+        <id name="id" type="payment_id">
+            <generator strategy="NONE"/>
+        </id>
+
+        <embedded name="amount" class="App\Payment\Domain\Money" column-prefix="amount_"/>
+
+        <field name="payerEmail" type="payer_email" column="payer_email" length="255"/>
+        <field name="description" type="string" length="500" nullable="true"/>
+        <embedded name="provider" class="App\Payment\Domain\PaymentProvider" column-prefix="provider_"/>
+        <field name="providerReference" type="string" column="provider_reference" length="255" nullable="true"/>
+        <field name="status" type="string" length="20" enum-type="App\Payment\Domain\PaymentStatus"/>
+    </entity>
+
+</doctrine-mapping>

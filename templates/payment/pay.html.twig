@@ -1,0 +1,122 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Make a payment{% endblock %}
+
+{% block body %}
+    <h1>Make a payment</h1>
+
+    {% if status is not null %}
+        {# Server-verified result of a completed/attempted payment. #}
+        <div class="panel panel-{{ status.status }}">
+            <strong>
+                {% if status.status == 'succeeded' %}Payment confirmed.
+                {% elseif status.status == 'failed' %}Payment failed.
+                {% else %}Payment not confirmed yet.
+                {% endif %}
+            </strong>
+            <dl>
+                <dt>Amount</dt><dd>{{ status.amount }} {{ status.currency }}</dd>
+                <dt>Provider</dt><dd>{{ status.provider }}</dd>
+                <dt>Status</dt><dd>{{ status.status }}</dd>
+                {% if status.providerReference %}<dt>Reference</dt><dd>{{ status.providerReference }}</dd>{% endif %}
+            </dl>
+        </div>
+        <p><a href="{{ path('pay') }}">Make another payment</a></p>
+
+    {% elseif checkout is not null %}
+        <p class="muted">Complete the payment below. The result is verified on our server, not from the browser.</p>
+
+        <p id="checkout-loading" class="muted">Loading the secure payment form&hellip;</p>
+        {% if checkout.kind == 'stripe_embedded' %}
+            <div id="checkout"></div>
+        {% elseif checkout.kind == 'paypal_buttons' %}
+            <div id="paypal-buttons"></div>
+        {% endif %}
+        <p id="checkout-error" class="error" hidden></p>
+
+        <p><a href="{{ path('pay') }}">Cancel and start over</a></p>
+
+    {% else %}
+        {{ form_start(form) }}
+            {{ form_errors(form) }}
+            {{ form_row(form.payerEmail) }}
+            {{ form_row(form.amount) }}
+            {{ form_row(form.description) }}
+            <button type="submit">Continue to payment</button>
+        {{ form_end(form) }}
+    {% endif %}
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    {% if checkout is not null %}
+    <script>
+        window.__checkout = {
+            kind: {{ checkout.kind|json_encode|raw }},
+            completeUrl: {{ checkout.completeUrl|json_encode|raw }},
+            params: {{ checkout.parameters|json_encode|raw }}
+        };
+        window.__checkoutFail = function (message) {
+            var err = document.getElementById('checkout-error');
+            var loading = document.getElementById('checkout-loading');
+            if (loading) { loading.remove(); }
+            err.hidden = false;
+            err.textContent = message;
+        };
+    </script>
+    {% endif %}
+
+    {% if checkout is not null and checkout.kind == 'stripe_embedded' %}
+        <script src="https://js.stripe.com/v3/"></script>
+        <script>
+            (async () => {
+                const { params } = window.__checkout;
+                try {
+                    if (typeof Stripe !== 'function') {
+                        return window.__checkoutFail('Stripe.js did not load (network or content blocker?).');
+                    }
+                    const stripe = Stripe(params.publishableKey);
+                    const checkout = await stripe.initEmbeddedCheckout({ clientSecret: params.clientSecret });
+                    const loading = document.getElementById('checkout-loading');
+                    if (loading) { loading.remove(); }
+                    checkout.mount('#checkout');
+                    // On completion Stripe redirects the browser to our return_url,
+                    // where the payment is verified server-side.
+                } catch (e) {
+                    window.__checkoutFail(
+                        'Could not load the Stripe payment form: ' + (e && e.message ? e.message : e) +
+                        ' — check that STRIPE_PUBLISHABLE_KEY is a real key from the same account as the secret key.'
+                    );
+                }
+            })();
+        </script>
+
+    {% elseif checkout is not null and checkout.kind == 'paypal_buttons' %}
+        <script src="https://www.paypal.com/sdk/js?client-id={{ checkout.parameters.clientId }}&currency={{ checkout.parameters.currency }}&intent=capture"
+                onerror="window.__checkoutFail('PayPal SDK did not load — check PAYPAL_CLIENT_ID.')"></script>
+        <script>
+            (() => {
+                const { params, completeUrl } = window.__checkout;
+                if (typeof paypal === 'undefined') {
+                    return window.__checkoutFail('PayPal SDK did not load — check PAYPAL_CLIENT_ID.');
+                }
+                const loading = document.getElementById('checkout-loading');
+                if (loading) { loading.remove(); }
+                paypal.Buttons({
+                    createOrder: () => params.orderId,
+                    onApprove: async (data) => {
+                        const res = await fetch(completeUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ orderId: data.orderID }),
+                        });
+                        const body = await res.json();
+                        if (body.redirect) { window.location = body.redirect; return; }
+                        window.__checkoutFail(body.error || 'Could not complete the payment.');
+                    },
+                    onError: () => window.__checkoutFail('PayPal reported an error. The payment was not taken.'),
+                }).render('#paypal-buttons');
+            })();
+        </script>
+    {% endif %}
+{% endblock %}

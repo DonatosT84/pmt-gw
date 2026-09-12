@@ -1,0 +1,15 @@
+# Auto-loaded by `docker compose` on top of docker-compose.yml for local
+# development: the host source is mounted into the container so edits are live
+# without rebuilding the image.
+services:
+  app:
+    volumes:
+      - .:/app
+      # Shield the dependencies installed during the image build from the
+      # bind mount above. Run `docker compose run --rm app composer install`
+      # to update them inside this volume.
+      - /app/vendor
+      # Put var/ (incl. the SQLite file var/data_dev.db) on the host instead of
+      # the named volume, so a client / PhpStorm can open the database file
+      # directly. Overrides `app_var:/app/var` from docker-compose.yml.
+      - ./var:/app/var

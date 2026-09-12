@@ -1,0 +1,13 @@
+.git
+.idea
+var/
+vendor/
+.env.local
+.env.*.local
+.phpunit.cache/
+Dockerfile
+.dockerignore
+compose*.y*ml
+docker-compose*.y*ml
+*.md
+docs/

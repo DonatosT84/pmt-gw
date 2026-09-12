@@ -1,0 +1,42 @@
+# Builds the full project into a self-contained image (source + Composer
+# dependencies) and serves it with the PHP built-in web server against SQLite.
+#
+#   docker compose up --build
+#
+# `compose.override.yml` is auto-loaded and bind-mounts the source for live
+# editing. To run the image exactly as built, ignore the override:
+#
+#   docker compose -f docker-compose.yml up --build
+#
+# Dev / demo only - not a production deployment setup.
+services:
+  app:
+    build:
+      context: .
+      # Build RUN steps use the host network stack. Needed on hosts where the
+      # Docker bridge network has no working DNS resolver (e.g. the host uses
+      # the systemd-resolved stub at 127.0.0.53). Harmless otherwise.
+      # Permanent alternative: set {"dns": ["1.1.1.1"]} in /etc/docker/daemon.json.
+      network: host
+    image: pmt-gw-app
+    ports:
+      - "8000:8000"
+    # APP_ENV is intentionally NOT forced here: Symfony reads it from .env
+    # (dev) / .env.local, and forcing an OS-level APP_ENV would shadow the
+    # test environment when running PHPUnit inside the container.
+    env_file:
+      # Real secrets (Stripe/PayPal keys, admin hash). Injected as container
+      # environment variables, which win over the committed .env files.
+      - path: .env.local
+        required: false
+    volumes:
+      # Keeps the SQLite database and migration state across `up` / `down`.
+      - app_var:/app/var
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost:8000/pay') !== false ? 0 : 1);"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  app_var:

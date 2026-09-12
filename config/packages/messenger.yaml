@@ -1,0 +1,8 @@
+framework:
+    messenger:
+        default_bus: command.bus
+        buses:
+            # Two in-process synchronous buses. No transports: every message is
+            # handled immediately, in the same request, by its one handler.
+            command.bus: ~
+            query.bus: ~

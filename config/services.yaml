@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+parameters:
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    # ---------------------------------------------------------------------
+    # Application + Infrastructure + Presentation are wired here.
+    # The Domain layer is NEVER registered as services - it is plain PHP,
+    # instantiated by the code that needs it.
+    # ---------------------------------------------------------------------
+    App\Payment\Application\:
+        resource: '../src/Payment/Application/'
+        exclude:
+            - '../src/Payment/Application/**/*Command.php'
+            - '../src/Payment/Application/**/*Query.php'
+            - '../src/Payment/Application/**/*Result.php'
+            - '../src/Payment/Application/**/*View.php'
+            - '../src/Payment/Application/Gateway/Dto/'
+            - '../src/Payment/Application/Exception/'
+
+    App\Payment\Infrastructure\:
+        resource: '../src/Payment/Infrastructure/'
+        exclude:
+            - '../src/Payment/Infrastructure/Persistence/Doctrine/Type/'
+            - '../src/Payment/Infrastructure/Persistence/Doctrine/PaymentProviderSetting.php'
+
+    App\Payment\Presentation\:
+        resource: '../src/Payment/Presentation/'
+
+    # --- Hexagonal ports -> their infrastructure adapters
+    App\Payment\Domain\PaymentRepository: '@App\Payment\Infrastructure\Persistence\Doctrine\DoctrinePaymentRepository'
+    App\Payment\Domain\PaymentProviderRepository: '@App\Payment\Infrastructure\Persistence\Doctrine\DoctrineProviderSettingsRepository'
+    App\Payment\Application\Port\ProviderSettingsPort: '@App\Payment\Infrastructure\Persistence\Doctrine\DoctrineProviderSettingsRepository'
+    App\Payment\Application\Port\PaymentGatewayRegistry: '@App\Payment\Infrastructure\Gateway\Registry\TaggedGatewayRegistry'
+
+    # --- CQRS: bind the application-owned bus interfaces to the Messenger buses
+    App\Payment\Application\Bus\CommandBus:
+        class: App\Payment\Infrastructure\Bus\MessengerCommandBus
+        arguments: ['@command.bus']
+
+    App\Payment\Application\Bus\QueryBus:
+        class: App\Payment\Infrastructure\Bus\MessengerQueryBus
+        arguments: ['@query.bus']
+
+    # --- CQRS: register handlers explicitly (no #[AsMessageHandler] attribute,
+    #     so the Application layer stays framework-free). 1 message -> 1 handler.
+    #     Every PaymentGatewayInterface implementation is tagged so
+    #     TaggedGatewayRegistry can collect them.
+    _instanceof:
+        App\Payment\Application\Command\CommandHandler:
+            tags: [{ name: messenger.message_handler, bus: command.bus }]
+        App\Payment\Application\Query\QueryHandler:
+            tags: [{ name: messenger.message_handler, bus: query.bus }]
+        App\Payment\Application\Port\PaymentGatewayInterface:
+            tags: ['app.payment_gateway']
+
+    App\Payment\Infrastructure\Gateway\Registry\TaggedGatewayRegistry:
+        arguments:
+            $gateways: !tagged_iterator app.payment_gateway
+
+    # --- Stripe SDK client, built from the injected secret key
+    App\Payment\Infrastructure\Gateway\Stripe\StripeClientFactory:
+        arguments:
+            $secretKey: '%env(STRIPE_SECRET_KEY)%'
+
+    Stripe\StripeClient:
+        factory: ['@App\Payment\Infrastructure\Gateway\Stripe\StripeClientFactory', 'create']
+        # Lazy: the SDK client validates the API key on construction, so it must
+        # not be built just because the gateway registry is assembled (e.g. when
+        # the admin page lists providers and only PayPal is configured).
+        lazy: true
+
+    App\Payment\Infrastructure\Gateway\Stripe\StripePaymentGateway:
+        arguments:
+            $publishableKey: '%env(STRIPE_PUBLISHABLE_KEY)%'
+            $providerName: 'stripe'
+
+    App\Payment\Infrastructure\Gateway\PayPal\PayPalApiClient:
+        arguments:
+            $clientId: '%env(PAYPAL_CLIENT_ID)%'
+            $clientSecret: '%env(PAYPAL_CLIENT_SECRET)%'
+            $baseUri: '%env(PAYPAL_BASE_URI)%'
+
+    App\Payment\Infrastructure\Gateway\PayPal\PayPalPaymentGateway:
+        arguments:
+            $clientId: '%env(PAYPAL_CLIENT_ID)%'
+            $providerName: 'paypal'
+
+    # --- Effective-provider setting: env default is injected, never read inside
+    App\Payment\Infrastructure\Persistence\Doctrine\DoctrineProviderSettingsRepository:
+        arguments:
+            $configuredDefaultProvider: '%env(PAYMENT_DEFAULT_PROVIDER)%'
