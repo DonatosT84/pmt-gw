@@ -55,7 +55,9 @@ final class PayPalApiClient
      */
     public function captureOrder(string $orderId): array
     {
-        $response = $this->request('POST', sprintf('/v2/checkout/orders/%s/capture', rawurlencode($orderId)));
+        $response = $this->request('POST', sprintf('/v2/checkout/orders/%s/capture', rawurlencode($orderId)), [
+            'json' => new \stdClass(),
+        ]);
         $body = $this->decode($response);
 
         return [
